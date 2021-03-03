@@ -9,101 +9,132 @@ import time
 import cv2
 import os
 
-frames = 20
-output_dir = 'cal_vid'
-num_cals = 2
 
-cams = [Camera(i, lock=True) for i in range(num_cals)]
-print(f'Cams: {cams}')
-
-for c in cams:
-    c.init()
+def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
     
-    #c.PixelFormat = "BayerRG8"
-    #c.PixelFormat = "Mono8"
+    cams = [Camera(i, lock=True) for i in range(num_cams)]
+    print(f'Cams: {cams}')
 
-    #c.GainAuto = 'Continuous'
-    #c.ExposureAuto = 'Continuous'
-    #c.IspEnable = True
-    
-    c.BinningHorizontal = 2
-    c.BinningVertical = 2
-    #c.Width = c.SensorWidth
-    #c.Height = c.SensorHeight
-
-    c.DeviceLinkThroughputLimit = 100000000
-    c.GevSCPSPacketSize = 9000
-    c.GevSCPD = 72000    
-
-    print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
-          c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
-
-print(cams[0].get_info('PixelFormat'))
-
-for c in cams:    
-    c.GevIEEE1588 = True
-
-time.sleep(10)
-
-for c in cams:
-    c.GevIEEE1588DataSetLatch()
-    print(c.GevIEEE1588StatusLatched)
-    print(c.GevIEEE1588OffsetFromMasterLatched)
-
-for c in cams:    
-    c.start()
-    
-images = []
-timestamps = []
-print('Acquiring images')
-for i in tqdm(range(frames)):
-    time.sleep(0.3)
-    #time.sleep(2)
-    
-    if False:
-        im = np.concatenate([c.get_array() for c in cams], axis=0)
-        timestamps.append(datetime.now().timestamp())
-    else:
-        im = [c.get_image() for c in cams]
-
-        timestamps.append([x.GetTimeStamp() for x in im])
-    
-        #print(dir(im[0]))
-        for i, x in enumerate(im):
-            if not x.IsValid():
-                print(f'{i} Valid: {x.IsValid()}. Timestamp: {x.GetTimeStamp()}. Num Channels: {x.GetNumChannels()}. Size: {x.GetWidth()} x {x.GetHeight()}. Pixel format: {x.GetPixelFormat()} {x.GetPixelFormatName()}')
-    
-        #.Convert(PySpin.PixelFormat_BayerRG8, PySpin.HQ_LINEAR)
-        im = np.concatenate([x.GetNDArray() for x in im], axis=0)
+    for c in cams:
+        c.init()
         
-    images.append(im)
+        c.PixelFormat = "BayerRG8"  # BGR8 Mono8        
+        c.BinningHorizontal = 1
+        c.BinningVertical = 1
 
-for c in cams:
-    c.stop()
+        if False:
+            c.GainAuto = 'Continuous'
+            c.ExposureAuto = 'Continuous'
+            #c.IspEnable = True
 
-json.dump(timestamps, open(os.path.join(output_dir, 'timestamps.json'), 'w'))
+        c.DeviceLinkThroughputLimit = 100000000
+        c.GevSCPSPacketSize = 9000
+        c.GevSCPD = 72000    
 
-# average frame time from ns to s
-ts = np.asarray(timestamps)
-delta = np.mean(np.diff(ts, axis=0)) * 1e-9
-fps = 1.0 / delta
+        print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
+            c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
 
-#print(np.diff(ts, axis=0))
-#print(np.diff(ts, axis=1))
+    #print(cams[0].get_info('PixelFormat'))
+    pixel_format = cams[0].PixelFormat
 
-print(f'Writing images. Computed fps: {fps}')
-out_video = None
-for i, im in tqdm(enumerate(images)):
-    
-    im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
-    Image.fromarray(im[..., ::-1]).save(os.path.join(output_dir, '%08d.png' % i))
-    
-    #if out_video is None:
-    #    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    #    out_video = cv2.VideoWriter(os.path.join(output_dir, 'vid.mp4'), fourcc, fps, (im.shape[1], im.shape[0]))
-    #out_video.write(im)
+    if not all([c.GevIEEE1588]):
+        print('Cameras not synchronized. Enabling IEEE1588 (takes 10 seconds)')
+        for c in cams:    
+            c.GevIEEE1588 = True
 
-#out_video.release()
-    
+        time.sleep(10)
 
-    
+    for c in cams:
+        c.GevIEEE1588DataSetLatch()
+        print(c.GevIEEE1588StatusLatched, c.GevIEEE1588OffsetFromMasterLatched)
+
+    def acquire(win):
+        images = []
+        timestamps = []
+
+        win.nodelay(True)
+        win.clear()
+        win.addstr('Acquiring images. Press enter to stop')
+  
+        for c in cams:    
+            c.start()
+
+        for _ in range(max_frames):  # tqdm(range(max_frames)):
+
+            try:
+                key = win.getkey()
+                if key == os.linesep:
+                    print('Key detected')
+                    break
+            except Exception:
+                pass
+
+            if frame_pause > 0:
+                time.sleep(frame_pause)
+            
+            # get the image raw data
+            im = [c.get_image() for c in cams]
+
+            # pull out IEEE1558 timestamps
+            timestamps.append([x.GetTimeStamp() for x in im])
+        
+            # get the data array
+            im = np.concatenate([x.GetNDArray() for x in im], axis=0)        
+
+            images.append(im)
+
+        for c in cams:
+            c.stop()
+
+        return images, timestamps
+
+    now = datetime.now()
+    time_str = now.strftime('%Y%m%d_%H%M%S')
+    json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
+    vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
+
+    import curses
+    images, timestamps = curses.wrapper(acquire)
+    im = images[0]
+
+    json.dump(timestamps, open(json_file, 'w'))
+
+    # average frame time from ns to s
+    ts = np.asarray(timestamps)
+    delta = np.mean(np.diff(ts, axis=0)) * 1e-9
+    fps = 1.0 / delta
+
+    #print(np.diff(ts, axis=0))
+    #print(np.diff(ts, axis=1))
+
+    print(f'Writing images. Computed fps: {fps}')
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out_video = cv2.VideoWriter(vid_file, fourcc, fps, (im.shape[1], im.shape[0]))
+
+    for i, im in tqdm(enumerate(images)):
+        
+        #if pixel_format == 'BGR8':
+        #    im = im[..., ::-1]
+
+        if pixel_format == 'BayerRG8':
+            im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
+        out_video.write(im)
+
+        # very slow
+        # Image.fromarray(im[..., ::-1]).save(os.path.join(output_dir, '%08d.png' % i))
+
+    out_video.release()
+        
+
+        
+if __name__ == "__main__":
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description = 'Record video from GigE FLIR cameras')
+    parser.add_argument('vid_file', help='Video file to write')
+    parser.add_argument('-m', '--max_frames', type=int, default=10000, help='Maximum frames to record')
+    args = parser.parse_args()
+
+    record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
