@@ -51,6 +51,7 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
     def acquire(win):
         images = []
         timestamps = []
+        real_times = []
 
         win.nodelay(True)
         win.clear()
@@ -77,6 +78,7 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
 
             # pull out IEEE1558 timestamps
             timestamps.append([x.GetTimeStamp() for x in im])
+            real_times.append(datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
         
             # get the data array
             im = np.concatenate([x.GetNDArray() for x in im], axis=0)        
@@ -86,7 +88,7 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
         for c in cams:
             c.stop()
 
-        return images, timestamps
+        return images, timestamps, real_times
 
     now = datetime.now()
     time_str = now.strftime('%Y%m%d_%H%M%S')
