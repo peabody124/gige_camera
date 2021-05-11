@@ -96,14 +96,15 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
     vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
 
     import curses
-    images, timestamps = curses.wrapper(acquire)
+    images, timestamps, real_times = curses.wrapper(acquire)
     im = images[0]
 
-    json.dump(timestamps, open(json_file, 'w'))
+    json.dump({'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
 
     # average frame time from ns to s
     ts = np.asarray(timestamps)
-    delta = np.mean(np.diff(ts, axis=0)) * 1e-9
+    print(ts)
+    delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
     fps = 1.0 / delta
 
     #print(np.diff(ts, axis=0))
