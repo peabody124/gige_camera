@@ -4,6 +4,9 @@ from PIL import Image
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
+from queue import Queue
+import threading
+import curses
 import json
 import time
 import cv2
@@ -11,28 +14,31 @@ import os
 
 
 def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
-    
-    cams = [Camera(i, lock=True) for i in range(num_cams)]
-    print(f'Cams: {cams}')
 
+    image_queue = Queue(max_frames)
+
+    cams = [Camera(i, lock=True) for i in range(num_cams)]
+    
     for c in cams:
         c.init()
         
         c.PixelFormat = "BayerRG8"  # BGR8 Mono8        
-        c.BinningHorizontal = 1
-        c.BinningVertical = 1
+        #c.BinningHorizontal = 1
+        #c.BinningVertical = 1
 
         if False:
             c.GainAuto = 'Continuous'
             c.ExposureAuto = 'Continuous'
             #c.IspEnable = True
 
-        c.DeviceLinkThroughputLimit = 100000000
+        c.DeviceLinkThroughputLimit = 125000000
         c.GevSCPSPacketSize = 9000
-        c.GevSCPD = 72000    
+        c.GevSCPD = 25000    
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
             c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
+
+    cams.sort(key = lambda x: x.DeviceSerialNumber)
 
     #print(cams[0].get_info('PixelFormat'))
     pixel_format = cams[0].PixelFormat
@@ -48,87 +54,108 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
         c.GevIEEE1588DataSetLatch()
         print(c.GevIEEE1588StatusLatched, c.GevIEEE1588OffsetFromMasterLatched)
 
-    def acquire(win):
-        images = []
-        timestamps = []
-        real_times = []
+    def acquire():
 
-        win.nodelay(True)
-        win.clear()
-        win.addstr('Acquiring images. Press enter to stop')
-  
         for c in cams:    
             c.start()
 
-        for _ in range(max_frames):  # tqdm(range(max_frames)):
+        try:
+            for _ in range(max_frames):  # 
 
-            try:
-                key = win.getkey()
-                if key == os.linesep:
-                    print('Key detected')
-                    break
-            except Exception:
-                pass
+                if frame_pause > 0:
+                    time.sleep(frame_pause)
+                
+                # get the image raw data
+                im = [c.get_image() for c in cams]
 
-            if frame_pause > 0:
-                time.sleep(frame_pause)
-            
-            # get the image raw data
-            im = [c.get_image() for c in cams]
+                # pull out IEEE1558 timestamps
+                timestamps = [x.GetTimeStamp() for x in im]
+                real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-            # pull out IEEE1558 timestamps
-            timestamps.append([x.GetTimeStamp() for x in im])
-            real_times.append(datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
-        
-            # get the data array
-            im = np.concatenate([x.GetNDArray() for x in im], axis=0)        
+                # get the data array
+                try:
+                    im = np.concatenate([x.GetNDArray() for x in im], axis=0)
+                except Exception as e:
+                    tqdm.write('Bad frame')
+                    continue
 
-            images.append(im)
+                image_queue.put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
+
+        except KeyboardInterrupt:
+            tqdm.write('Crtl-C detected')
 
         for c in cams:
             c.stop()
 
-        return images, timestamps, real_times
+        image_queue.put(None)
 
-    now = datetime.now()
-    time_str = now.strftime('%Y%m%d_%H%M%S')
-    json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
-    vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
+    serials = [c.DeviceSerialNumber for c in cams]
 
-    import curses
-    images, timestamps, real_times = curses.wrapper(acquire)
-    im = images[0]
+    def write_queue(vid_file=vid_file, image_queue=image_queue, serials=serials):
+        now = datetime.now()
+        time_str = now.strftime('%Y%m%d_%H%M%S')
+        json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
+        vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
 
-    json.dump({'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        print(vid_file)
 
-    # average frame time from ns to s
-    ts = np.asarray(timestamps)
-    print(ts)
-    delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
-    fps = 1.0 / delta
+        timestamps = []
+        real_times = []
 
-    #print(np.diff(ts, axis=0))
-    #print(np.diff(ts, axis=1))
+        out_video = None
 
-    print(f'Writing images. Computed fps: {fps}')
+        for frame in tqdm(iter(image_queue.get, None)):
+            if frame is None:
+                break
+            
+            timestamps.append(frame['timestamps'])
+            real_times.append(frame['real_times'])
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out_video = cv2.VideoWriter(vid_file, fourcc, fps, (im.shape[1], im.shape[0]))
+            im = frame['im']
+            if pixel_format == 'BayerRG8':
+                im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
 
-    for i, im in tqdm(enumerate(images)):
-        
-        #if pixel_format == 'BGR8':
-        #    im = im[..., ::-1]
+            # need to collect two frames to track the FPS
+            if out_video is None and len(real_times) == 1:
+                last_im = im
 
-        if pixel_format == 'BayerRG8':
-            im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
-        out_video.write(im)
+            elif out_video is None and len(real_times) > 1:
 
-        # very slow
-        # Image.fromarray(im[..., ::-1]).save(os.path.join(output_dir, '%08d.png' % i))
+                ts = np.asarray(timestamps)
+                delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
+                fps = 1.0 / delta
+                tqdm.write(f'Computed FPS: {fps}')
 
-    out_video.release()
-        
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out_video = cv2.VideoWriter(vid_file, fourcc, fps, (im.shape[1], im.shape[0]))
+                out_video.write(last_im)
+
+            else:
+                out_video.write(im)
+
+            image_queue.task_done()
+
+        out_video.release()
+
+        json.dump({'serials': serials, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+
+        # average frame time from ns to s
+        ts = np.asarray(timestamps)
+        delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
+        fps = 1.0 / delta
+
+        print(f'Finished writing images. Final fps: {fps}')
+
+        # indicate the last None event is handled
+        image_queue.task_done()
+
+    threading.Thread(target=write_queue).start()
+
+    acquire()
+
+    image_queue.join()
+
+    return
 
         
 if __name__ == "__main__":
