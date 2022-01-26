@@ -1,0 +1,6 @@
+pyspin
+simple_pyspin
+Pillow
+numpy
+opencv-python
+
