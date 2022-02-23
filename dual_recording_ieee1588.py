@@ -13,7 +13,7 @@ import cv2
 import os
 
 
-def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
     image_queue = Queue(max_frames)
 
@@ -31,9 +31,14 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
             c.ExposureAuto = 'Continuous'
             #c.IspEnable = True
 
-        c.DeviceLinkThroughputLimit = 125000000
         c.GevSCPSPacketSize = 9000
-        c.GevSCPD = 25000    
+        if num_cams > 2:
+            c.DeviceLinkThroughputLimit = 85000000
+            c.GevSCPD = 25000
+        else:
+            c.DeviceLinkThroughputLimit = 125000000
+            c.GevSCPD = 25000
+        #c.StreamPacketResendEnable = True
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
             c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -60,7 +65,8 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
             c.start()
 
         try:
-            for _ in range(max_frames):  # 
+            #for _ in range(max_frames):  # 
+            for _ in tqdm(range(max_frames)):
 
                 if frame_pause > 0:
                     time.sleep(frame_pause)
@@ -104,7 +110,7 @@ def record_dual(vid_file, max_frames=100, num_cams=2, frame_pause=0):
 
         out_video = None
 
-        for frame in tqdm(iter(image_queue.get, None)):
+        for frame in iter(image_queue.get, None):
             if frame is None:
                 break
             
