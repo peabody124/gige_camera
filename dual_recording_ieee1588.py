@@ -128,7 +128,7 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
             elif out_video is None and len(real_times) > 1:
 
                 ts = np.asarray(timestamps)
-                delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
+                delta = np.mean(np.diff(ts, axis=0)) * 1e-9
                 fps = 1.0 / delta
                 tqdm.write(f'Computed FPS: {fps}')
 
@@ -147,7 +147,7 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
-        delta = np.mean(np.diff(ts[:, :-1], axis=0)) * 1e-9
+        delta = np.mean(np.diff(ts, axis=0)) * 1e-9
         fps = 1.0 / delta
 
         print(f'Finished writing images. Final fps: {fps}')
