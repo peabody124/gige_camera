@@ -11,10 +11,12 @@ import json
 import time
 import cv2
 import os
+import time
+import yappi
 
 
-def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
-
+# @profile
+def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
     image_queue = Queue(max_frames)
 
     cams = [Camera(i, lock=True) for i in range(num_cams)]
@@ -59,6 +61,7 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         c.GevIEEE1588DataSetLatch()
         print(c.GevIEEE1588StatusLatched, c.GevIEEE1588OffsetFromMasterLatched)
 
+    # @profile
     def acquire():
 
         for c in cams:    
@@ -97,7 +100,9 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
     serials = [c.DeviceSerialNumber for c in cams]
 
+    # @yappi.profile(profile_builtins=True)
     def write_queue(vid_file=vid_file, image_queue=image_queue, serials=serials):
+        t0 = time.time()
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
         json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
@@ -109,18 +114,26 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         real_times = []
 
         out_video = None
-
+        cnt_loop = 0.
+        cvt_time_sum = 0.
+        write_time_sum = 0.
+        t1 = time.time()
         for frame in iter(image_queue.get, None):
+            cnt_loop += 1
             if frame is None:
                 break
-            
+            print(pixel_format)
             timestamps.append(frame['timestamps'])
             real_times.append(frame['real_times'])
 
             im = frame['im']
+            t2 = time.time()
             if pixel_format == 'BayerRG8':
                 im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
-
+            t3 = time.time()
+            # print("CVT COLOR IN LOOP",t3-t2)
+            cvt_time_sum += (t3 - t2)
+            t3a = time.time()
             # need to collect two frames to track the FPS
             if out_video is None and len(real_times) == 1:
                 last_im = im
@@ -138,7 +151,10 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
             else:
                 out_video.write(im)
-
+            t4a = time.time()
+            write_time_sum += (t4a - t3a)
+            # print("WRITING IN LOOP",t4a-t3a)
+            t4b = time.time()
             image_queue.task_done()
 
         out_video.release()
@@ -149,9 +165,13 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         ts = np.asarray(timestamps)
         delta = np.mean(np.diff(ts, axis=0)) * 1e-9
         fps = 1.0 / delta
-
+        t4 = time.time()
+        print(cnt_loop)
         print(f'Finished writing images. Final fps: {fps}')
-
+        print("START ", t1 - t0)
+        print("START LOOP", t2 - t1)
+        print("CVT COLOR ", cvt_time_sum, cvt_time_sum / cnt_loop)
+        print("WRITING ", write_time_sum, write_time_sum / cnt_loop)
         # indicate the last None event is handled
         image_queue.task_done()
 
@@ -170,7 +190,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description = 'Record video from GigE FLIR cameras')
     parser.add_argument('vid_file', help='Video file to write')
-    parser.add_argument('-m', '--max_frames', type=int, default=10000, help='Maximum frames to record')
+    parser.add_argument('-m', '--max_frames', type=int, default=500, help='Maximum frames to record')
     args = parser.parse_args()
 
     record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
