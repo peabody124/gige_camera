@@ -17,14 +17,15 @@ import yappi
 
 # @profile
 def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
-    image_queue = Queue(max_frames)
-
+    # image_queue = Queue(max_frames)
+    # Initializing dict to hold each image queue (from each camera)
+    image_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
     
     for c in cams:
         c.init()
         
-        c.PixelFormat = "BayerRG8"  # BGR8 Mono8        
+        c.PixelFormat = "BayerRG8"  # BGR8 Mono8
         #c.BinningHorizontal = 1
         #c.BinningVertical = 1
 
@@ -33,7 +34,7 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
             c.ExposureAuto = 'Continuous'
             #c.IspEnable = True
 
-        c.GevSCPSPacketSize = 9000
+        # c.GevSCPSPacketSize = 9000
         if num_cams > 2:
             c.DeviceLinkThroughputLimit = 85000000
             c.GevSCPD = 25000
@@ -41,6 +42,9 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
             c.DeviceLinkThroughputLimit = 125000000
             c.GevSCPD = 25000
         #c.StreamPacketResendEnable = True
+
+        # Initializing an image queue for each camera
+        image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
             c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -75,20 +79,36 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
                     time.sleep(frame_pause)
                 
                 # get the image raw data
-                im = [c.get_image() for c in cams]
-
-                # pull out IEEE1558 timestamps
-                timestamps = [x.GetTimeStamp() for x in im]
+                # for each camera, get the current frame and assign it to
+                # the corresponding camera
                 real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-                # get the data array
-                try:
-                    im = np.concatenate([x.GetNDArray() for x in im], axis=0)
-                except Exception as e:
-                    tqdm.write('Bad frame')
-                    continue
-
-                image_queue.put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
+                for c in cams:
+                    im = c.get_image()
+                    timestamps = im.GetTimeStamp()
+                    image_queue_dict[c.DeviceSerialNumber].put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
+                # im = [c.get_image() for c in cams]
+                #
+                # # pull out IEEE1558 timestamps
+                # timestamps = [x.GetTimeStamp() for x in im]
+                # real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                #
+                # # get the data array
+                # try:
+                #     # print(len(im))
+                #     # print(im[0].GetNDArray().shape)
+                #     # cv2.imshow("video_frame",im[0].GetNDArray())
+                #     # cv2.waitKey(0)
+                #     im = np.concatenate([x.GetNDArray() for x in im], axis=0)
+                #     # print("SHAPE: ",im.shape)
+                #     # print(type(im))
+                #     # cv2.imshow("video_frame",im)
+                #     # cv2.waitKey(0)
+                # except Exception as e:
+                #     print(e)
+                #     tqdm.write('Bad frame')
+                #     continue
+                #
+                # image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -96,17 +116,17 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         for c in cams:
             c.stop()
 
-        image_queue.put(None)
+            image_queue_dict[c.DeviceSerialNumber].put(None)
 
     serials = [c.DeviceSerialNumber for c in cams]
 
     # @yappi.profile(profile_builtins=True)
-    def write_queue(vid_file=vid_file, image_queue=image_queue, serials=serials):
+    def write_queue(vid_file, image_queue, serial):
         t0 = time.time()
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
-        json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
-        vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
+        json_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.json"
+        vid_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.mp4"
 
         print(vid_file)
 
@@ -122,7 +142,6 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
             cnt_loop += 1
             if frame is None:
                 break
-            print(pixel_format)
             timestamps.append(frame['timestamps'])
             real_times.append(frame['real_times'])
 
@@ -159,7 +178,7 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
 
         out_video.release()
 
-        json.dump({'serials': serials, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
@@ -175,11 +194,14 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         # indicate the last None event is handled
         image_queue.task_done()
 
-    threading.Thread(target=write_queue).start()
+    for c in cams:
+        serial = c.DeviceSerialNumber
+        threading.Thread(target=write_queue, kwargs={'vid_file' : vid_file, 'image_queue' : image_queue_dict[serial], 'serial' : [serial]}).start()
 
     acquire()
 
-    image_queue.join()
+    for c in cams:
+        image_queue_dict[c.DeviceSerialNumber].join()
 
     return
 
@@ -194,3 +216,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
+    print("Done")
