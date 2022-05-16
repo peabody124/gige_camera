@@ -21,18 +21,18 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
-    
+
     for c in cams:
         c.init()
-        
+
         c.PixelFormat = "BayerRG8"  # BGR8 Mono8
-        #c.BinningHorizontal = 1
-        #c.BinningVertical = 1
+        # c.BinningHorizontal = 1
+        # c.BinningVertical = 1
 
         if False:
             c.GainAuto = 'Continuous'
             c.ExposureAuto = 'Continuous'
-            #c.IspEnable = True
+            # c.IspEnable = True
 
         # c.GevSCPSPacketSize = 9000
         if num_cams > 2:
@@ -41,22 +41,23 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         else:
             c.DeviceLinkThroughputLimit = 125000000
             c.GevSCPD = 25000
-        #c.StreamPacketResendEnable = True
+        # c.StreamPacketResendEnable = True
 
         # Initializing an image queue for each camera
         image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
+        dummy_queue = Queue(max_frames)
 
-        print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
-            c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
+        print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
+              c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
 
-    cams.sort(key = lambda x: x.DeviceSerialNumber)
+    cams.sort(key=lambda x: x.DeviceSerialNumber)
 
-    #print(cams[0].get_info('PixelFormat'))
+    # print(cams[0].get_info('PixelFormat'))
     pixel_format = cams[0].PixelFormat
 
     if not all([c.GevIEEE1588]):
         print('Cameras not synchronized. Enabling IEEE1588 (takes 10 seconds)')
-        for c in cams:    
+        for c in cams:
             c.GevIEEE1588 = True
 
         time.sleep(10)
@@ -68,16 +69,16 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
     # @profile
     def acquire():
 
-        for c in cams:    
+        for c in cams:
             c.start()
 
         try:
-            #for _ in range(max_frames):  # 
+            # for _ in range(max_frames):  #
             for _ in tqdm(range(max_frames)):
 
                 if frame_pause > 0:
                     time.sleep(frame_pause)
-                
+
                 # get the image raw data
                 # for each camera, get the current frame and assign it to
                 # the corresponding camera
@@ -86,6 +87,8 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
                     im = c.get_image()
                     timestamps = im.GetTimeStamp()
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
+                    dummy_queue.put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
+
                 # im = [c.get_image() for c in cams]
                 #
                 # # pull out IEEE1558 timestamps
@@ -117,6 +120,7 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
             c.stop()
 
             image_queue_dict[c.DeviceSerialNumber].put(None)
+            dummy_queue.put(None)
 
     serials = [c.DeviceSerialNumber for c in cams]
 
@@ -125,8 +129,8 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         t0 = time.time()
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
-        json_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.json"
-        vid_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.mp4"
+        json_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.json"
+        vid_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.mp4"
 
         print(vid_file)
 
@@ -194,23 +198,49 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         # indicate the last None event is handled
         image_queue.task_done()
 
+    # for c in cams:
+    #     serial = c.DeviceSerialNumber
+    #
+    # dummy_queue = Queue(max_frames)
+    #
+    # for i in image_queue_dict[serial].queue:
+    #     dummy_queue.put(i)
+    #
+    # print(image_queue_dict[serial])
+    # print(dummy_queue)
+
     for c in cams:
         serial = c.DeviceSerialNumber
-        threading.Thread(target=write_queue, kwargs={'vid_file' : vid_file, 'image_queue' : image_queue_dict[serial], 'serial' : [serial]}).start()
+        threading.Thread(target=write_queue,
+                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'serial': [serial]},
+                         daemon=True).start()
+        threading.Thread(target=write_queue,
+                         kwargs={'vid_file': vid_file+"2", 'image_queue': dummy_queue, 'serial': [serial]},
+                         daemon=True).start()
+
+
+
+    # threading.Thread(target=write_queue,
+    #                  kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'serial': [serial]},daemon=True).start()
+    # threading.Thread(target=write_queue,
+    #                  kwargs={'vid_file': vid_file + "2", 'image_queue': dummy_queue, 'serial': [serial]},daemon=True).start()
 
     acquire()
 
-    for c in cams:
-        image_queue_dict[c.DeviceSerialNumber].join()
+
+    image_queue_dict[c.DeviceSerialNumber].join()
+    dummy_queue.join()
+
+    # for c in cams:
+    #     image_queue_dict[c.DeviceSerialNumber].join()
 
     return
 
-        
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description = 'Record video from GigE FLIR cameras')
+    parser = argparse.ArgumentParser(description='Record video from GigE FLIR cameras')
     parser.add_argument('vid_file', help='Video file to write')
     parser.add_argument('-m', '--max_frames', type=int, default=500, help='Maximum frames to record')
     args = parser.parse_args()
