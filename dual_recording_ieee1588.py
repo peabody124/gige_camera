@@ -11,13 +11,10 @@ import json
 import time
 import cv2
 import os
-import time
-import yappi
 
 
-# @profile
+
 def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
-    # image_queue = Queue(max_frames)
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
@@ -66,14 +63,12 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
         c.GevIEEE1588DataSetLatch()
         print(c.GevIEEE1588StatusLatched, c.GevIEEE1588OffsetFromMasterLatched)
 
-    # @profile
     def acquire():
 
         for c in cams:
             c.start()
 
         try:
-            # for _ in range(max_frames):  #
             for _ in tqdm(range(max_frames)):
 
                 if frame_pause > 0:
@@ -86,9 +81,9 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
                 for c in cams:
                     im = c.get_image()
                     timestamps = im.GetTimeStamp()
-                    # image_queue_dict[c.DeviceSerialNumber].put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
 
                     # get the data array
+                    # Using try/except to handle frame tearing
                     try:
                         im = im.GetNDArray()
                     except Exception as e:
@@ -96,32 +91,8 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
                         tqdm.write('Bad frame')
                         continue
 
+                    # Writing the frame information for the current camera to its queue
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
-                    # dummy_queue.put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
-
-                # im = [c.get_image() for c in cams]
-                #
-                # # pull out IEEE1558 timestamps
-                # timestamps = [x.GetTimeStamp() for x in im]
-                # real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-                #
-                # # get the data array
-                # try:
-                #     # print(len(im))
-                #     # print(im[0].GetNDArray().shape)
-                #     # cv2.imshow("video_frame",im[0].GetNDArray())
-                #     # cv2.waitKey(0)
-                #     im = np.concatenate([x.GetNDArray() for x in im], axis=0)
-                #     # print("SHAPE: ",im.shape)
-                #     # print(type(im))
-                #     # cv2.imshow("video_frame",im)
-                #     # cv2.waitKey(0)
-                # except Exception as e:
-                #     print(e)
-                #     tqdm.write('Bad frame')
-                #     continue
-                #
-                # image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -130,16 +101,13 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
             c.stop()
 
             image_queue_dict[c.DeviceSerialNumber].put(None)
-            # dummy_queue.put(None)
 
     serials = [c.DeviceSerialNumber for c in cams]
 
-    # @yappi.profile(profile_builtins=True)
+
     def write_queue(vid_file, image_queue, json_queue, serial):
-        t0 = time.time()
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
-        # json_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.json"
         vid_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.mp4"
 
         print(vid_file)
@@ -148,25 +116,19 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
         real_times = []
 
         out_video = None
-        cnt_loop = 0.
-        cvt_time_sum = 0.
-        write_time_sum = 0.
-        t1 = time.time()
+
         for frame in iter(image_queue.get, None):
-            cnt_loop += 1
+
             if frame is None:
                 break
             timestamps.append(frame['timestamps'])
             real_times.append(frame['real_times'])
 
             im = frame['im']
-            t2 = time.time()
+
             if pixel_format == 'BayerRG8':
                 im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
-            t3 = time.time()
-            # print("CVT COLOR IN LOOP",t3-t2)
-            cvt_time_sum += (t3 - t2)
-            t3a = time.time()
+
             # need to collect two frames to track the FPS
             if out_video is None and len(real_times) == 1:
                 last_im = im
@@ -184,86 +146,64 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
 
             else:
                 out_video.write(im)
-            t4a = time.time()
-            write_time_sum += (t4a - t3a)
-            # print("WRITING IN LOOP",t4a-t3a)
-            t4b = time.time()
+
             image_queue.task_done()
 
         out_video.release()
 
-        # json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        # Adding the json info corresponding to the current camera to its own queue
         json_queue.put({'serial': serial, 'timestamps': timestamps, 'real_times': real_times, 'time_str': time_str})
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
         delta = np.mean(np.diff(ts, axis=0)) * 1e-9
         fps = 1.0 / delta
-        t4 = time.time()
-        print(cnt_loop)
+
         print(f'Finished writing images. Final fps: {fps}')
-        print("START ", t1 - t0)
-        print("START LOOP", t2 - t1)
-        print("CVT COLOR ", cvt_time_sum, cvt_time_sum / cnt_loop)
-        print("WRITING ", write_time_sum, write_time_sum / cnt_loop)
+
         # indicate the last None event is handled
         image_queue.task_done()
 
-
+    # initializing dictionary to hold json queue for each camera
     json_queue = {}
     # Start a writing thread for each camera
     for c in cams:
         serial = c.DeviceSerialNumber
+        # Initializing queue to store json info for each camera
         json_queue[c.DeviceSerialNumber] = Queue(max_frames)
-        # json_queue['dummy'] = Queue(max_frames)
         threading.Thread(target=write_queue,
-                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
-        # threading.Thread(target=write_queue,
-        #                  kwargs={'vid_file': vid_file+"2", 'image_queue': dummy_queue, 'json_queue': json_queue['dummy'], 'serial': [serial]}).start()
+                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial],
+                                 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
 
     acquire()
 
-    #
-    # image_queue_dict[c.DeviceSerialNumber].join()
-    # dummy_queue.join()
-
-
+    # Joining the image queues for each camera
+    # to allow each queue to be processed before moving on
     for c in cams:
         image_queue_dict[c.DeviceSerialNumber].join()
-        # dummy_queue.join()
 
-
+    # Creating a dictionary to hold the contents of each camera's json queue
     output_json = {}
     all_json = {}
-    # serials = [json_queue[key]['serial'] for key in json_queue]
-    print(json_queue[c.DeviceSerialNumber].queue[0])
 
     for j in json_queue:
         time_str = json_queue[j].queue[0]['time_str']
         real_times = json_queue[j].queue[0]['real_times']
-        print("*"*100)
-        #print(type(json_queue[j].queue[0]))
-        print(json_queue[j].queue[0]['serial'])
-        print(json_queue[j].queue[0]['time_str'])
+
         all_json[json_queue[j].queue[0]['serial']] = json_queue[j].queue[0]
-        # output_json['serial'] =
-    #print(all_json)
+
+    # defining the filename for the json file
     json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
-    print(all_json.keys())
+
+    # combining the json information from each camera's queue
     all_serials = [all_json[key]['serial'] for key in all_json]
     all_timestamps = [all_json[key]['timestamps'] for key in all_json]
-    #all_real_times = [all_json[key]['real_times'] for key in all_json]
-    #
-    # print(all_serials)
-    #print(all_timestamps)
-    # print(all_real_times)
 
     output_json['serials'] = all_serials
     output_json['timestamps'] = [list(t) for t in zip(*all_timestamps)]
     output_json['real_times'] = real_times
 
-    #print(output_json['timestamps'])
-
+    # writing the json file for the current recording session
     json.dump(output_json, open(json_file, 'w'))
 
     return
