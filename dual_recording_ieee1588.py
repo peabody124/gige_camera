@@ -140,7 +140,7 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
         # json_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.json"
-        vid_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.mp4"
+        vid_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.mp4"
 
         print(vid_file)
 
@@ -240,27 +240,29 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
 
     for j in json_queue:
         time_str = json_queue[j].queue[0]['time_str']
+        real_times = json_queue[j].queue[0]['real_times']
         print("*"*100)
-        print(type(json_queue[j].queue[0]))
-        print(json_queue[j].queue[0])
+        #print(type(json_queue[j].queue[0]))
+        print(json_queue[j].queue[0]['serial'])
         print(json_queue[j].queue[0]['time_str'])
-        all_json[json_queue[j].queue[0]['serial'][0]] = json_queue[j].queue[0]
+        all_json[json_queue[j].queue[0]['serial']] = json_queue[j].queue[0]
         # output_json['serial'] =
-    print(all_json)
+    #print(all_json)
     json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
+    print(all_json.keys())
     all_serials = [all_json[key]['serial'] for key in all_json]
     all_timestamps = [all_json[key]['timestamps'] for key in all_json]
-    all_real_times = [all_json[key]['real_times'] for key in all_json]
+    #all_real_times = [all_json[key]['real_times'] for key in all_json]
     #
     # print(all_serials)
-    # print(all_timestamps)
+    #print(all_timestamps)
     # print(all_real_times)
 
-    output_json['serial'] = all_serials
+    output_json['serials'] = all_serials
     output_json['timestamps'] = [list(t) for t in zip(*all_timestamps)]
-    output_json['real_times'] = all_real_times
+    output_json['real_times'] = real_times
 
-    print(output_json)
+    #print(output_json['timestamps'])
 
     json.dump(output_json, open(json_file, 'w'))
 
