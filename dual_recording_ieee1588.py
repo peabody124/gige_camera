@@ -16,7 +16,7 @@ import yappi
 
 
 # @profile
-def record_dual(vid_file, max_frames=10, num_cams=2, frame_pause=0):
+def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
     # image_queue = Queue(max_frames)
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
@@ -34,7 +34,7 @@ def record_dual(vid_file, max_frames=10, num_cams=2, frame_pause=0):
             c.ExposureAuto = 'Continuous'
             # c.IspEnable = True
 
-        # c.GevSCPSPacketSize = 9000
+        c.GevSCPSPacketSize = 9000
         if num_cams > 2:
             c.DeviceLinkThroughputLimit = 85000000
             c.GevSCPD = 25000
