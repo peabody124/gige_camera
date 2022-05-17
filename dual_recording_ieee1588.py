@@ -16,7 +16,7 @@ import yappi
 
 
 # @profile
-def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
+def record_dual(vid_file, max_frames=10, num_cams=2, frame_pause=0):
     # image_queue = Queue(max_frames)
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
@@ -86,8 +86,18 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
                 for c in cams:
                     im = c.get_image()
                     timestamps = im.GetTimeStamp()
-                    image_queue_dict[c.DeviceSerialNumber].put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
-                    dummy_queue.put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
+                    # image_queue_dict[c.DeviceSerialNumber].put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
+
+                    # get the data array
+                    try:
+                        im = im.GetNDArray()
+                    except Exception as e:
+                        print(e)
+                        tqdm.write('Bad frame')
+                        continue
+
+                    image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
+                    # dummy_queue.put({'im': im.GetNDArray(), 'real_times': real_times, 'timestamps': timestamps})
 
                 # im = [c.get_image() for c in cams]
                 #
@@ -120,16 +130,16 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
             c.stop()
 
             image_queue_dict[c.DeviceSerialNumber].put(None)
-            dummy_queue.put(None)
+            # dummy_queue.put(None)
 
     serials = [c.DeviceSerialNumber for c in cams]
 
     # @yappi.profile(profile_builtins=True)
-    def write_queue(vid_file, image_queue, serial):
+    def write_queue(vid_file, image_queue, json_queue, serial):
         t0 = time.time()
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
-        json_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.json"
+        # json_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.json"
         vid_file = os.path.splitext(vid_file)[0] + f"_{serial[0]}_{time_str}.mp4"
 
         print(vid_file)
@@ -182,7 +192,8 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
 
         out_video.release()
 
-        json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        # json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        json_queue.put({'serial': serial, 'timestamps': timestamps, 'real_times': real_times})
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
@@ -198,41 +209,37 @@ def record_dual(vid_file, max_frames=10, num_cams=1, frame_pause=0):
         # indicate the last None event is handled
         image_queue.task_done()
 
-    # for c in cams:
-    #     serial = c.DeviceSerialNumber
-    #
-    # dummy_queue = Queue(max_frames)
-    #
-    # for i in image_queue_dict[serial].queue:
-    #     dummy_queue.put(i)
-    #
-    # print(image_queue_dict[serial])
-    # print(dummy_queue)
 
+    json_queue = {}
+    # Start a writing thread for each camera
     for c in cams:
         serial = c.DeviceSerialNumber
+        json_queue[c.DeviceSerialNumber] = Queue(max_frames)
+        json_queue['dummy'] = Queue(max_frames)
         threading.Thread(target=write_queue,
-                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'serial': [serial]},
-                         daemon=True).start()
-        threading.Thread(target=write_queue,
-                         kwargs={'vid_file': vid_file+"2", 'image_queue': dummy_queue, 'serial': [serial]},
-                         daemon=True).start()
-
-
-
-    # threading.Thread(target=write_queue,
-    #                  kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'serial': [serial]},daemon=True).start()
-    # threading.Thread(target=write_queue,
-    #                  kwargs={'vid_file': vid_file + "2", 'image_queue': dummy_queue, 'serial': [serial]},daemon=True).start()
+                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': [serial]}).start()
+        # threading.Thread(target=write_queue,
+        #                  kwargs={'vid_file': vid_file+"2", 'image_queue': dummy_queue, 'json_queue': json_queue['dummy'], 'serial': [serial]}).start()
 
     acquire()
 
+    #
+    # image_queue_dict[c.DeviceSerialNumber].join()
+    # dummy_queue.join()
 
-    image_queue_dict[c.DeviceSerialNumber].join()
-    dummy_queue.join()
 
-    # for c in cams:
-    #     image_queue_dict[c.DeviceSerialNumber].join()
+    for c in cams:
+        image_queue_dict[c.DeviceSerialNumber].join()
+        # dummy_queue.join()
+
+    # output_json = {}
+    # output_json['serial'] =
+    # for j in json_queue:
+    #     print("*"*100)
+    #     print(json_queue[j].queue[0])
+    #     output_json['serial'] =
+
+    # json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
 
     return
 
