@@ -193,7 +193,7 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
         out_video.release()
 
         # json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
-        json_queue.put({'serial': serial, 'timestamps': timestamps, 'real_times': real_times})
+        json_queue.put({'serial': serial, 'timestamps': timestamps, 'real_times': real_times, 'time_str': time_str})
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
@@ -215,9 +215,9 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
     for c in cams:
         serial = c.DeviceSerialNumber
         json_queue[c.DeviceSerialNumber] = Queue(max_frames)
-        json_queue['dummy'] = Queue(max_frames)
+        # json_queue['dummy'] = Queue(max_frames)
         threading.Thread(target=write_queue,
-                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': [serial]}).start()
+                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial], 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
         # threading.Thread(target=write_queue,
         #                  kwargs={'vid_file': vid_file+"2", 'image_queue': dummy_queue, 'json_queue': json_queue['dummy'], 'serial': [serial]}).start()
 
@@ -232,14 +232,37 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
         image_queue_dict[c.DeviceSerialNumber].join()
         # dummy_queue.join()
 
-    # output_json = {}
-    # output_json['serial'] =
-    # for j in json_queue:
-    #     print("*"*100)
-    #     print(json_queue[j].queue[0])
-    #     output_json['serial'] =
 
-    # json.dump({'serial': serial, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+    output_json = {}
+    all_json = {}
+    # serials = [json_queue[key]['serial'] for key in json_queue]
+    print(json_queue[c.DeviceSerialNumber].queue[0])
+
+    for j in json_queue:
+        time_str = json_queue[j].queue[0]['time_str']
+        print("*"*100)
+        print(type(json_queue[j].queue[0]))
+        print(json_queue[j].queue[0])
+        print(json_queue[j].queue[0]['time_str'])
+        all_json[json_queue[j].queue[0]['serial'][0]] = json_queue[j].queue[0]
+        # output_json['serial'] =
+    print(all_json)
+    json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
+    all_serials = [all_json[key]['serial'] for key in all_json]
+    all_timestamps = [all_json[key]['timestamps'] for key in all_json]
+    all_real_times = [all_json[key]['real_times'] for key in all_json]
+    #
+    # print(all_serials)
+    # print(all_timestamps)
+    # print(all_real_times)
+
+    output_json['serial'] = all_serials
+    output_json['timestamps'] = [list(t) for t in zip(*all_timestamps)]
+    output_json['real_times'] = all_real_times
+
+    print(output_json)
+
+    json.dump(output_json, open(json_file, 'w'))
 
     return
 
