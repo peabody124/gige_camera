@@ -14,7 +14,7 @@ import os
 
 
 
-def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
@@ -42,7 +42,6 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
 
         # Initializing an image queue for each camera
         image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
-        dummy_queue = Queue(max_frames)
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
               c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -87,7 +86,6 @@ def record_dual(vid_file, max_frames=10, num_cams=4, frame_pause=0):
                     try:
                         im = im.GetNDArray()
                     except Exception as e:
-                        print(e)
                         tqdm.write('Bad frame')
                         continue
 
@@ -214,7 +212,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Record video from GigE FLIR cameras')
     parser.add_argument('vid_file', help='Video file to write')
-    parser.add_argument('-m', '--max_frames', type=int, default=500, help='Maximum frames to record')
+    parser.add_argument('-m', '--max_frames', type=int, default=10000, help='Maximum frames to record')
     args = parser.parse_args()
 
     record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
