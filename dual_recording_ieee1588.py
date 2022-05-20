@@ -13,23 +13,23 @@ import cv2
 import os
 
 
+
 def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
-
-    image_queue = Queue(max_frames)
-
+    # Initializing dict to hold each image queue (from each camera)
+    image_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
-    
+
     for c in cams:
         c.init()
-        
-        c.PixelFormat = "BayerRG8"  # BGR8 Mono8        
-        #c.BinningHorizontal = 1
-        #c.BinningVertical = 1
+
+        c.PixelFormat = "BayerRG8"  # BGR8 Mono8
+        # c.BinningHorizontal = 1
+        # c.BinningVertical = 1
 
         if False:
             c.GainAuto = 'Continuous'
             c.ExposureAuto = 'Continuous'
-            #c.IspEnable = True
+            # c.IspEnable = True
 
         c.GevSCPSPacketSize = 9000
         if num_cams > 2:
@@ -38,19 +38,22 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         else:
             c.DeviceLinkThroughputLimit = 125000000
             c.GevSCPD = 25000
-        #c.StreamPacketResendEnable = True
+        # c.StreamPacketResendEnable = True
 
-        print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat, 
-            c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
+        # Initializing an image queue for each camera
+        image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
 
-    cams.sort(key = lambda x: x.DeviceSerialNumber)
+        print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
+              c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
 
-    #print(cams[0].get_info('PixelFormat'))
+    cams.sort(key=lambda x: x.DeviceSerialNumber)
+
+    # print(cams[0].get_info('PixelFormat'))
     pixel_format = cams[0].PixelFormat
 
     if not all([c.GevIEEE1588]):
         print('Cameras not synchronized. Enabling IEEE1588 (takes 10 seconds)')
-        for c in cams:    
+        for c in cams:
             c.GevIEEE1588 = True
 
         time.sleep(10)
@@ -61,31 +64,33 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
     def acquire():
 
-        for c in cams:    
+        for c in cams:
             c.start()
 
         try:
-            #for _ in range(max_frames):  # 
             for _ in tqdm(range(max_frames)):
 
                 if frame_pause > 0:
                     time.sleep(frame_pause)
-                
+
                 # get the image raw data
-                im = [c.get_image() for c in cams]
-
-                # pull out IEEE1558 timestamps
-                timestamps = [x.GetTimeStamp() for x in im]
+                # for each camera, get the current frame and assign it to
+                # the corresponding camera
                 real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                for c in cams:
+                    im = c.get_image()
+                    timestamps = im.GetTimeStamp()
 
-                # get the data array
-                try:
-                    im = np.concatenate([x.GetNDArray() for x in im], axis=0)
-                except Exception as e:
-                    tqdm.write('Bad frame')
-                    continue
+                    # get the data array
+                    # Using try/except to handle frame tearing
+                    try:
+                        im = im.GetNDArray()
+                    except Exception as e:
+                        tqdm.write('Bad frame')
+                        continue
 
-                image_queue.put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
+                    # Writing the frame information for the current camera to its queue
+                    image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -93,15 +98,15 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         for c in cams:
             c.stop()
 
-        image_queue.put(None)
+            image_queue_dict[c.DeviceSerialNumber].put(None)
 
     serials = [c.DeviceSerialNumber for c in cams]
 
-    def write_queue(vid_file=vid_file, image_queue=image_queue, serials=serials):
+
+    def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
         time_str = now.strftime('%Y%m%d_%H%M%S')
-        json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
-        vid_file = os.path.splitext(vid_file)[0] + f"_{time_str}.mp4"
+        vid_file = os.path.splitext(vid_file)[0] + f"_{serial}_{time_str}.mp4"
 
         print(vid_file)
 
@@ -111,13 +116,14 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         out_video = None
 
         for frame in iter(image_queue.get, None):
+
             if frame is None:
                 break
-            
             timestamps.append(frame['timestamps'])
             real_times.append(frame['real_times'])
 
             im = frame['im']
+
             if pixel_format == 'BayerRG8':
                 im = cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB)
 
@@ -143,7 +149,8 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
         out_video.release()
 
-        json.dump({'serials': serials, 'timestamps': timestamps, 'real_times': real_times}, open(json_file, 'w'))
+        # Adding the json info corresponding to the current camera to its own queue
+        json_queue.put({'serial': serial, 'timestamps': timestamps, 'real_times': real_times, 'time_str': time_str})
 
         # average frame time from ns to s
         ts = np.asarray(timestamps)
@@ -155,22 +162,58 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
         # indicate the last None event is handled
         image_queue.task_done()
 
-    threading.Thread(target=write_queue).start()
+    # initializing dictionary to hold json queue for each camera
+    json_queue = {}
+    # Start a writing thread for each camera
+    for c in cams:
+        serial = c.DeviceSerialNumber
+        # Initializing queue to store json info for each camera
+        json_queue[c.DeviceSerialNumber] = Queue(max_frames)
+        threading.Thread(target=write_queue,
+                         kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial],
+                                 'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
 
     acquire()
 
-    image_queue.join()
+    # Joining the image queues for each camera
+    # to allow each queue to be processed before moving on
+    for c in cams:
+        image_queue_dict[c.DeviceSerialNumber].join()
+
+    # Creating a dictionary to hold the contents of each camera's json queue
+    output_json = {}
+    all_json = {}
+
+    for j in json_queue:
+        time_str = json_queue[j].queue[0]['time_str']
+        real_times = json_queue[j].queue[0]['real_times']
+
+        all_json[json_queue[j].queue[0]['serial']] = json_queue[j].queue[0]
+
+    # defining the filename for the json file
+    json_file = os.path.splitext(vid_file)[0] + f"_{time_str}.json"
+
+    # combining the json information from each camera's queue
+    all_serials = [all_json[key]['serial'] for key in all_json]
+    all_timestamps = [all_json[key]['timestamps'] for key in all_json]
+
+    output_json['serials'] = all_serials
+    output_json['timestamps'] = [list(t) for t in zip(*all_timestamps)]
+    output_json['real_times'] = real_times
+
+    # writing the json file for the current recording session
+    json.dump(output_json, open(json_file, 'w'))
 
     return
 
-        
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description = 'Record video from GigE FLIR cameras')
+    parser = argparse.ArgumentParser(description='Record video from GigE FLIR cameras')
     parser.add_argument('vid_file', help='Video file to write')
     parser.add_argument('-m', '--max_frames', type=int, default=10000, help='Maximum frames to record')
     args = parser.parse_args()
 
     record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
+    print("Done")
