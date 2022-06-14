@@ -14,9 +14,11 @@ import os
 
 
 
-def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
+def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = True):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
+    if preview:
+        visualization_queue_dict = {}
     cams = [Camera(i, lock=True) for i in range(num_cams)]
 
     for c in cams:
@@ -42,6 +44,8 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
 
         # Initializing an image queue for each camera
         image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
+        if preview:
+            visualization_queue_dict[c.DeviceSerialNumber] = Queue(1)
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
               c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -77,6 +81,8 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
                 # for each camera, get the current frame and assign it to
                 # the corresponding camera
                 real_times = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                size_flag = 0
+                real_time_images = []
                 for c in cams:
                     im = c.get_image()
                     timestamps = im.GetTimeStamp()
@@ -85,12 +91,69 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0):
                     # Using try/except to handle frame tearing
                     try:
                         im = im.GetNDArray()
+
+                        # if preview is enabled, save the size of the first image
+                        # and append the image from each camera to a list
+                        if preview:
+                            real_time_images.append(im)
+                            if size_flag == 0:
+                                size_flag = 1
+                                image_size = im.shape
                     except Exception as e:
                         tqdm.write('Bad frame')
                         continue
 
                     # Writing the frame information for the current camera to its queue
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
+
+
+                window_sizes = { 1: np.array([1,1]),
+                                 2: np.array([1,2]),
+                                 3: np.array([2,2]),
+                                 4: np.array([2,2]),
+                                 5: np.array([2,3]),
+                                 6: np.array([2,3])
+                                }
+
+                if preview:
+                    desired_width = image_size[1]
+                    desired_height = image_size[0]
+
+                    # create output visualization shape
+                    desired_zeros = np.zeros_like(real_time_images[0])
+                    desired_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
+
+                    padded_images = []
+                    for current_cam_im in real_time_images:
+
+                        current_width = current_cam_im.shape[1]
+                        current_height = current_cam_im.shape[0]
+
+                        current_im = np.zeros_like(current_cam_im)
+
+                        # compute center offset
+                        x_center = (current_width - desired_width) // 2
+                        y_center = (current_height - desired_height) // 2
+
+                        current_im[y_center:y_center+desired_height,x_center:x_center+desired_width] = current_cam_im
+
+                        padded_images.append(current_im)
+
+                    im_counter = 0
+                    w_offset = 0
+                    h_offset = 0
+                    for r in range(window_sizes[num_cams][0]):
+                        for c in range(window_sizes[num_cams][1]):
+
+                            desired_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = padded_images[im_counter]
+                            im_counter += 1
+                            w_offset += desired_width
+                            print(im_counter, r, c)
+
+                        h_offset += desired_height
+
+                    cv2.imshow("image",cv2.cvtColor(desired_window, cv2.COLOR_BAYER_RG2RGB))
+                    cv2.waitKey(1)
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
