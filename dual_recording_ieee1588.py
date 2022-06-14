@@ -116,6 +116,13 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                                 }
 
                 if preview:
+
+
+                    if len(real_time_images) < np.prod(window_sizes[num_cams]):
+                        # Add extra square to fill in empty space if there are
+                        # not enough images to fit the current grid size
+                        real_time_images.extend([np.zeros_like(real_time_images[0]) for i in range(np.prod(window_sizes[num_cams]) - len(real_time_images))])
+
                     desired_width = image_size[1]
                     desired_height = image_size[0]
 
@@ -123,21 +130,32 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                     desired_zeros = np.zeros_like(real_time_images[0])
                     desired_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
 
-                    padded_images = []
-                    for current_cam_im in real_time_images:
 
-                        current_width = current_cam_im.shape[1]
-                        current_height = current_cam_im.shape[0]
-
-                        current_im = np.zeros_like(current_cam_im)
-
-                        # compute center offset
-                        x_center = (current_width - desired_width) // 2
-                        y_center = (current_height - desired_height) // 2
-
-                        current_im[y_center:y_center+desired_height,x_center:x_center+desired_width] = current_cam_im
-
-                        padded_images.append(current_im)
+                    # removing padding code for now, making assumption that all cameras
+                    # will have same sized images
+                    # desired_width = image_size[1]
+                    # desired_height = image_size[0]
+                    #
+                    # # create output visualization shape
+                    # desired_zeros = np.zeros_like(real_time_images[0])
+                    # desired_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
+                    #
+                    #
+                    # padded_images = []
+                    # for current_cam_im in real_time_images:
+                    #
+                    #     current_width = current_cam_im.shape[1]
+                    #     current_height = current_cam_im.shape[0]
+                    #
+                    #     current_im = np.zeros_like(current_cam_im)
+                    #
+                    #     # compute center offset
+                    #     x_center = (current_width - desired_width) // 2
+                    #     y_center = (current_height - desired_height) // 2
+                    #
+                    #     current_im[y_center:y_center+desired_height,x_center:x_center+desired_width] = current_cam_im
+                    #
+                    #     padded_images.append(current_im)
 
                     im_counter = 0
                     w_offset = 0
@@ -145,12 +163,13 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                     for r in range(window_sizes[num_cams][0]):
                         for c in range(window_sizes[num_cams][1]):
 
-                            desired_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = padded_images[im_counter]
+                            desired_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = real_time_images[im_counter]
                             im_counter += 1
                             w_offset += desired_width
-                            print(im_counter, r, c)
+                            # print(im_counter, r, c)
 
                         h_offset += desired_height
+                        w_offset = 0
 
                     cv2.imshow("image",cv2.cvtColor(desired_window, cv2.COLOR_BAYER_RG2RGB))
                     cv2.waitKey(1)
