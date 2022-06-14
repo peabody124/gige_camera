@@ -12,13 +12,21 @@ import time
 import cv2
 import os
 
-
+# Defining window size based on number
+# of cameras(key)
+window_sizes = {1: np.array([1, 1]),
+                2: np.array([1, 2]),
+                3: np.array([2, 2]),
+                4: np.array([2, 2]),
+                5: np.array([2, 3]),
+                6: np.array([2, 3])
+                }
 
 def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = True):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     if preview:
-        visualization_queue_dict = {}
+        visualization_queue = Queue(1)
     cams = [Camera(i, lock=True) for i in range(num_cams)]
 
     for c in cams:
@@ -44,8 +52,8 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
         # Initializing an image queue for each camera
         image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
-        if preview:
-            visualization_queue_dict[c.DeviceSerialNumber] = Queue(1)
+        # if preview:
+        #     visualization_queue_dict[c.DeviceSerialNumber] = Queue(1)
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
               c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -106,17 +114,7 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                     # Writing the frame information for the current camera to its queue
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
-
-                window_sizes = { 1: np.array([1,1]),
-                                 2: np.array([1,2]),
-                                 3: np.array([2,2]),
-                                 4: np.array([2,2]),
-                                 5: np.array([2,3]),
-                                 6: np.array([2,3])
-                                }
-
                 if preview:
-
 
                     if len(real_time_images) < np.prod(window_sizes[num_cams]):
                         # Add extra square to fill in empty space if there are
@@ -128,34 +126,10 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
                     # create output visualization shape
                     desired_zeros = np.zeros_like(real_time_images[0])
-                    desired_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
-
+                    im_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
 
                     # removing padding code for now, making assumption that all cameras
                     # will have same sized images
-                    # desired_width = image_size[1]
-                    # desired_height = image_size[0]
-                    #
-                    # # create output visualization shape
-                    # desired_zeros = np.zeros_like(real_time_images[0])
-                    # desired_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
-                    #
-                    #
-                    # padded_images = []
-                    # for current_cam_im in real_time_images:
-                    #
-                    #     current_width = current_cam_im.shape[1]
-                    #     current_height = current_cam_im.shape[0]
-                    #
-                    #     current_im = np.zeros_like(current_cam_im)
-                    #
-                    #     # compute center offset
-                    #     x_center = (current_width - desired_width) // 2
-                    #     y_center = (current_height - desired_height) // 2
-                    #
-                    #     current_im[y_center:y_center+desired_height,x_center:x_center+desired_width] = current_cam_im
-                    #
-                    #     padded_images.append(current_im)
 
                     im_counter = 0
                     w_offset = 0
@@ -163,7 +137,7 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                     for r in range(window_sizes[num_cams][0]):
                         for c in range(window_sizes[num_cams][1]):
 
-                            desired_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = real_time_images[im_counter]
+                            im_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = real_time_images[im_counter]
                             im_counter += 1
                             w_offset += desired_width
                             # print(im_counter, r, c)
@@ -171,8 +145,9 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                         h_offset += desired_height
                         w_offset = 0
 
-                    cv2.imshow("image",cv2.cvtColor(desired_window, cv2.COLOR_BAYER_RG2RGB))
-                    cv2.waitKey(1)
+                    # Add combined image to queue
+                    visualization_queue.put({'im': im_window, 'real_times': real_times, 'timestamps': timestamps})
+
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -184,6 +159,10 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
     serials = [c.DeviceSerialNumber for c in cams]
 
+    def visualize(image_queue):
+        for frame in iter(image_queue.get, None):
+            cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+            cv2.waitKey(1)
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
@@ -255,12 +234,18 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                          kwargs={'vid_file': vid_file, 'image_queue': image_queue_dict[serial],
                                  'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
 
+    if preview:
+        threading.Thread(target=visualize,kwargs={'image_queue':visualization_queue},daemon=visualize).start()
+
+
+
     acquire()
 
     # Joining the image queues for each camera
     # to allow each queue to be processed before moving on
     for c in cams:
         image_queue_dict[c.DeviceSerialNumber].join()
+
 
     # Creating a dictionary to hold the contents of each camera's json queue
     output_json = {}
