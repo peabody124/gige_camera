@@ -4,6 +4,7 @@ from PIL import Image
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
+from queue import Full,Empty
 from queue import Queue
 import threading
 import curses
@@ -146,7 +147,11 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                         w_offset = 0
 
                     # Add combined image to queue
-                    visualization_queue.put({'im': im_window, 'real_times': real_times, 'timestamps': timestamps})
+                    try:
+                        visualization_queue.put({'im': im_window},block=False)
+                    except Full:
+                        pass
+
 
 
         except KeyboardInterrupt:
@@ -160,9 +165,14 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
     serials = [c.DeviceSerialNumber for c in cams]
 
     def visualize(image_queue):
-        for frame in iter(image_queue.get, None):
-            cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-            cv2.waitKey(1)
+        try:
+            f = image_queue.get(block=False)
+        except Empty:
+            pass
+        else:
+            for frame in iter(f, None):
+                cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+                cv2.waitKey(1)
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
