@@ -165,14 +165,17 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
     serials = [c.DeviceSerialNumber for c in cams]
 
     def visualize(image_queue):
-        try:
-            f = image_queue.get(block=False)
-        except Empty:
-            pass
-        else:
-            for frame in iter(f, None):
-                cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-                cv2.waitKey(1)
+        for frame in iter(image_queue.get, None):
+            cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+            cv2.waitKey(1)
+        # try:
+        #     f = image_queue.get(block=False)
+        # except Empty:
+        #     pass
+        # else:
+        #     for frame in iter(f, None):
+        #         cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+        #         cv2.waitKey(1)
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
