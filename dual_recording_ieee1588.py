@@ -170,20 +170,8 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
             cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
             cv2.waitKey(1)
 
-            if cv2.waitKey(1) != -1: #ord('q') or cv2.waitKey(1) == ord('c'):
-                print("got here")
-                stop_flag = 1
+            if cv2.waitKey(1) == ord('q') or cv2.waitKey(1) == ord('c'):
                 _thread.interrupt_main()
-                # sys.exit()
-                # cv2.destroyAllWindows()
-        # try:
-        #     f = image_queue.get(block=False)
-        # except Empty:
-        #     pass
-        # else:
-        #     for frame in iter(f, None):
-        #         cv2.imshow("Preview",cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-        #         cv2.waitKey(1)
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
