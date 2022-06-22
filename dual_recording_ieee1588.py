@@ -24,7 +24,7 @@ window_sizes = {1: np.array([1, 1]),
                 6: np.array([2, 3])
                 }
 
-def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = True):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     if preview:
@@ -54,8 +54,6 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
         # Initializing an image queue for each camera
         image_queue_dict[c.DeviceSerialNumber] = Queue(max_frames)
-        # if preview:
-        #     visualization_queue_dict[c.DeviceSerialNumber] = Queue(1)
 
         print(c.DeviceSerialNumber, c.PixelSize, c.PixelColorFilter, c.PixelFormat,
               c.Width, c.Height, c.WidthMax, c.HeightMax, c.BinningHorizontal, c.BinningVertical)
@@ -142,7 +140,6 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                             im_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = real_time_images[im_counter]
                             im_counter += 1
                             w_offset += desired_width
-                            # print(im_counter, r, c)
 
                         h_offset += desired_height
                         w_offset = 0
@@ -152,8 +149,6 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                         visualization_queue.put({'im': im_window},block=False)
                     except Full:
                         pass
-
-
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -289,7 +284,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Record video from GigE FLIR cameras')
     parser.add_argument('vid_file', help='Video file to write')
     parser.add_argument('-m', '--max_frames', type=int, default=10000, help='Maximum frames to record')
+    parser.add_argument('-n', '--num_cams', type=int, default=4, help='Number of input cameras')
+    parser.add_argument('-f', '--frame_pause', type=int, default=0, help='Time to pause between frames of video')
+    parser.add_argument('-p','--preview', default=False, action='store_true', help='Allow real-time visualization of video')
+    parser.add_argument('--no-preview', dest='preview', action='store_false')
     args = parser.parse_args()
 
-    record_dual(vid_file=args.vid_file, max_frames=args.max_frames)
-    print("Done")
+    record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview)
