@@ -4,7 +4,6 @@ from PIL import Image
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
-from queue import Full,Empty
 from queue import Queue
 import threading
 import curses
@@ -25,13 +24,12 @@ window_sizes = {1: np.array([1, 1]),
                 6: np.array([2, 3])
                 }
 
-def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = True):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     if preview:
         visualization_queue = Queue(1)
-        out_queue = Queue(1)
-        e = threading.Event() 
+
     cams = [Camera(i, lock=True) for i in range(num_cams)]
 
     for c in cams:
@@ -118,7 +116,7 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
                 if preview:
-                    t0 = time.time()
+
                     if len(real_time_images) < np.prod(window_sizes[num_cams]):
                         # Add extra square to fill in empty space if there are
                         # not enough images to fit the current grid size
@@ -146,100 +144,10 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
                         h_offset += desired_height
                         w_offset = 0
-                    t1 = time.time()
-                    # Add combined image to queue
+
+                    # Add combined image to queue if empty
                     if visualization_queue.empty():
-                        #print("in try")
-                        #print(visualization_queue.empty())
-                        t2 = time.time()
                         visualization_queue.put({'im': im_window},block=False)
-                        #visualization_queue.put(im_window,block=False)
-                        #cv2.imshow("test",im_window)
-                    else:
-                        #if e.is_set():
-                        #    _thread.interrupt_main()
-                        t3 = time.time()
-                        #cur_im = visualization_queue.get()
-                        t4 = time.time()
-                        #cv2.imshow("Preview", cv2.cvtColor(cur_im, cv2.COLOR_BAYER_RG2RGB))
-                        t5 = time.time()
-                        #g = cv2.waitKey(1)
-                        t6 = time.time()
-
-
-                        #print("T1",t1-t0)
-                        #print("T2",t2-t1)
-                        #print("T3",t3-t2)
-                        #print("T4",t4-t3)
-                        #print("T5",t5-t4)
-                        #print("T6",t6-t5)
-                    #    cv2.destroyAllWindows()
-                    #    if g == ord('q') or g == ord('c'):
-                    #        _thread.interrupt_main()
-                    #except Full:
-                    #    pass       
-                    #    print("in full except")
-                    #    #print(visualization_queue.empty())
-                    #
-                    #    #for frame in iter(visualization_queue.get, None):
-                    #    #print(visualization_queue.empty())
-                    #    #cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-                    #    #cv2.waitKey(1)
-                    #
-                    #    #print("%%%%%%%%%%"+str(cv2.waitKey(1)))
-                    #except Empty:
-                    #    print("in empty except")
-                    # try:
-                    #    #print("in try")
-                    #    #print(visualization_queue.empty())
-                    #    #visualization_queue.put({'im': im_window},block=False)
-                    #    visualization_queue.put(im_window,block=False)
-                    #    #cv2.imshow("test",im_window)
-                    #except Full:    
-                    #    cur_im = visualization_queue.get(block=False)
-                    #    cv2.imshow("Preview", cv2.cvtColor(cur_im, cv2.COLOR_BAYER_RG2RGB))
-                    #    g = cv2.waitKey(1)
-                    #    #cv2.destroyAllWindows()
-                    #    if g == ord('q') or g == ord('c'):
-                    #        _thread.interrupt_main()
-                    #
-                    #    #print("in full except")
-                    #    #print(visualization_queue.empty())
-                    #
-                    #    #for frame in iter(visualization_queue.get, None):
-                    #    #print(visualization_queue.empty())
-                    #    #cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-                    #    #cv2.waitKey(1)
-                    #
-                    #    #print("%%%%%%%%%%"+str(cv2.waitKey(1)))
-                    #except Empty:
-                    #    print("in empty except")
-                    #if visualization_queue.empty():
-                    #    #print("in try")
-                    #    #print(visualization_queue.empty())
-                    #    #visualization_queue.put({'im': im_window},block=False)
-                    #    visualization_queue.put(im_window,block=False)
-                    #    #cv2.imshow("test",im_window)
-                    #else:    
-                    #    cur_im = visualization_queue.get(block=False)
-                    #    cv2.imshow("Preview", cv2.cvtColor(cur_im, cv2.COLOR_BAYER_RG2RGB))
-                    #    g = cv2.waitKey(1)
-                    #    #cv2.destroyAllWindows()
-                    #    if g == ord('q') or g == ord('c'):
-                    #        _thread.interrupt_main()
-                    #
-                    #    #print("in full except")
-                    #    #print(visualization_queue.empty())
-                    #
-                    #    #for frame in iter(visualization_queue.get, None):
-                    #    #print(visualization_queue.empty())
-                    #    #cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-                    #    #cv2.waitKey(1)
-                    #
-                    #    #print("%%%%%%%%%%"+str(cv2.waitKey(1)))
-                    #except Empty:
-                    #    print("in empty except")
-
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -249,19 +157,10 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
 
             image_queue_dict[c.DeviceSerialNumber].put(None)
 
-    serials = [c.DeviceSerialNumber for c in cams]
-
     def visualize(image_queue):
         for frame in iter(image_queue.get, None):
-        #print(image_queue.get)
-        #print(iter(image_queue.get, None))
-        #print(image_queue.get())
-        #frame = next(iter(image_queue.get, None))
             cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
             cv2.waitKey(1)
-
-        #if cv2.waitKey(1) == ord('q') or cv2.waitKey(1) == ord('c'):
-        #    _thread.interrupt_main()
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
@@ -334,22 +233,19 @@ def record_dual(vid_file, max_frames=100, num_cams=1, frame_pause=0, preview = T
                                  'json_queue': json_queue[c.DeviceSerialNumber], 'serial': serial}).start()
 
     if preview:
+        # Starting a daemon thread that hosts the OpenCV visualization (cv2.imshow())
         threading.Thread(target=visualize,kwargs={'image_queue':visualization_queue},daemon=visualize).start()
-         
+
+        # Defining method to listen to keyboard input
         def on_press(key):
-            print('{0} pressed'.format(key))
             if key == pynput.keyboard.Key.esc or key == pynput.keyboard.KeyCode.from_char('q') or key == pynput.keyboard.KeyCode.from_char('c'):
                 # Stop listener
                 _thread.interrupt_main()
                 return False
 
-        def on_release(key):
-            print('{0} release'.format(key))
-
         # Collect events until released
         listener = pynput.keyboard.Listener(on_press=on_press,on_release=on_release,suppress=True)
         listener.start()
-
 
     acquire()
 
@@ -395,7 +291,7 @@ if __name__ == "__main__":
     parser.add_argument('-n', '--num_cams', type=int, default=4, help='Number of input cameras')
     parser.add_argument('-f', '--frame_pause', type=int, default=0, help='Time to pause between frames of video')
     parser.add_argument('-p','--preview', default=True, action='store_true', help='Allow real-time visualization of video')
-    parser.add_argument('--no-preview', dest='preview', action='store_false')
+    parser.add_argument('--no-preview', dest='preview', action='store_false', help='Do not allow real-time visualization of video')
     args = parser.parse_args()
 
     record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview)
