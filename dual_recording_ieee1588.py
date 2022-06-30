@@ -244,7 +244,7 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                 return False
 
         # Collect events until released
-        listener = pynput.keyboard.Listener(on_press=on_press,on_release=on_release,suppress=True)
+        listener = pynput.keyboard.Listener(on_press=on_press,suppress=True)
         listener.start()
 
     acquire()
