@@ -106,14 +106,15 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                         # if preview is enabled, save the size of the first image
                         # and append the image from each camera to a list
                         if preview:
-                            print("BEFORE RESIZE")
-                            print(resize,type(resize),im.shape)
+                            # print("BEFORE RESIZE")
+                            # print(resize,type(resize),im.shape)
+                            im_copy = copy.copy(cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB))
                             if (0. < resize <= 1.0) and isinstance(resize,float):
-                                im_copy = copy.copy(cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB))
+
                                 # im_copy = cv2.cvtColor(im_copy, cv2.COLOR_BAYER_RG2RGB)
-                                resize_factor = int(1/resize)
-                                print("RESIZE FACTOR",resize_factor)
-                                print("BEFORE")
+                                # resize_factor = int(1/resize)
+                                # print("RESIZE FACTOR",resize_factor)
+                                # print("BEFORE")
                                 # print(type(im))
                                 # print(type(im[0]))
                                 # print(type(im[0][0]))
@@ -123,7 +124,7 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                                 im_copy = cv2.resize(im_copy,dsize=None,fx=resize,fy=resize)
 
                                 # im = im[::resize_factor,::resize_factor]
-                                print("AFTER")
+                                # print("AFTER")
                                 # print(type(im))
                                 # print(type(im[0]))
                                 # print(type(im[0][0]))
@@ -135,9 +136,9 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                                 size_flag = 1
 
                                 image_size = im_copy.shape
-                                print("AFTER RESIZE",image_size)
+                                # print("AFTER RESIZE",image_size)
                     except Exception as e:
-                        print(e)
+                        # print(e)
                         tqdm.write('Bad frame')
                         continue
 
