@@ -211,14 +211,29 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                 if (0. < resize <= 1.0) and isinstance(resize, float):
                     preview_im = cv2.resize(preview_im, dsize=None, fx=resize, fy=resize)
 
-                cv2.imshow("Preview"+str(im_counter), preview_im)
-                cv2.waitKey(1)
+                preview_images.append(preview_im)
 
-                im_counter += 1
-        # for frame in iter(image_queue.get, None):
-        #     cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
-        #     # cv2.imshow("Preview", frame['im'])
-        #     cv2.waitKey(1)
+            h,w,d = preview_images[0].shape
+            # desired_zeros = np.zeros(preview_images[0].shape)
+            preview = np.zeros(np.array(preview_images[0].shape) * window_sizes[num_cams],dtype=np.uint8)
+
+            # removing padding code for now, making assumption that all cameras
+            # will have same sized images
+
+            im_counter = 0
+            w_offset = 0
+            h_offset = 0
+            for r in range(window_sizes[num_cams][0]):
+                for c in range(window_sizes[num_cams][1]):
+                    preview[h_offset:h_offset + h, w_offset:w_offset + w] = preview_images[im_counter]
+                    im_counter += 1
+                    w_offset += w
+
+                h_offset += h
+                w_offset = 0
+
+            cv2.imshow("Preview", preview)
+            cv2.waitKey(1)
 
 
     def write_queue(vid_file, image_queue, json_queue, serial):
