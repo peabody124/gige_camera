@@ -198,10 +198,8 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
         for frame in iter(image_queue.get, None):
             real_time_images = frame['im']
 
-            # print(type(real_time_images))
-
             preview_images = []
-            im_counter = 0
+
             for i in real_time_images:
 
                 # Go through the list of images, and convert them all to color
@@ -212,6 +210,11 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                     preview_im = cv2.resize(preview_im, dsize=None, fx=resize, fy=resize)
 
                 preview_images.append(preview_im)
+
+            if len(real_time_images) < np.prod(window_sizes[num_cams]):
+                # Add extra square to fill in empty space if there are
+                # not enough images to fit the current grid size
+                real_time_images.extend([np.zeros(preview_images[0].shape, dtype=np.uint8) for i in range(np.prod(window_sizes[num_cams]) - len(preview_images))])
 
             h,w,d = preview_images[0].shape
             # desired_zeros = np.zeros(preview_images[0].shape)
