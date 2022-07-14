@@ -1,3 +1,5 @@
+import copy
+
 import PySpin
 from simple_pyspin import Camera
 from PIL import Image
@@ -16,15 +18,15 @@ import pynput
 
 # Defining window size based on number
 # of cameras(key)
-window_sizes = {1: np.array([1, 1]),
-                2: np.array([1, 2]),
-                3: np.array([2, 2]),
-                4: np.array([2, 2]),
-                5: np.array([2, 3]),
-                6: np.array([2, 3])
+window_sizes = {1: np.array([1, 1, 1]),
+                2: np.array([1, 2, 1]),
+                3: np.array([2, 2, 1]),
+                4: np.array([2, 2, 1]),
+                5: np.array([2, 3, 1]),
+                6: np.array([2, 3, 1])
                 }
 
-def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True, resize = 0.5):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     if preview:
@@ -104,11 +106,38 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                         # if preview is enabled, save the size of the first image
                         # and append the image from each camera to a list
                         if preview:
-                            real_time_images.append(im)
+                            print("BEFORE RESIZE")
+                            print(resize,type(resize),im.shape)
+                            if (0. < resize <= 1.0) and isinstance(resize,float):
+                                im_copy = copy.copy(cv2.cvtColor(im, cv2.COLOR_BAYER_RG2RGB))
+                                # im_copy = cv2.cvtColor(im_copy, cv2.COLOR_BAYER_RG2RGB)
+                                resize_factor = int(1/resize)
+                                print("RESIZE FACTOR",resize_factor)
+                                print("BEFORE")
+                                # print(type(im))
+                                # print(type(im[0]))
+                                # print(type(im[0][0]))
+                                # print(type(im[0][0][0]))
+                                # cv2.imshow("test1", im)
+                                # cv2.waitKey(1)
+                                im_copy = cv2.resize(im_copy,dsize=None,fx=resize,fy=resize)
+
+                                # im = im[::resize_factor,::resize_factor]
+                                print("AFTER")
+                                # print(type(im))
+                                # print(type(im[0]))
+                                # print(type(im[0][0]))
+                                # print(type(im[0][0][0]))
+                                # cv2.imshow("test",im_copy)
+                                # cv2.waitKey(1)
+                            real_time_images.append(im_copy)
                             if size_flag == 0:
                                 size_flag = 1
-                                image_size = im.shape
+
+                                image_size = im_copy.shape
+                                print("AFTER RESIZE",image_size)
                     except Exception as e:
+                        print(e)
                         tqdm.write('Bad frame')
                         continue
 
@@ -120,13 +149,13 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                     if len(real_time_images) < np.prod(window_sizes[num_cams]):
                         # Add extra square to fill in empty space if there are
                         # not enough images to fit the current grid size
-                        real_time_images.extend([np.zeros_like(real_time_images[0]) for i in range(np.prod(window_sizes[num_cams]) - len(real_time_images))])
+                        real_time_images.extend([np.zeros(real_time_images[0].shape,dtype=np.uint8) for i in range(np.prod(window_sizes[num_cams]) - len(real_time_images))])
 
                     desired_width = image_size[1]
                     desired_height = image_size[0]
 
                     # create output visualization shape
-                    desired_zeros = np.zeros_like(real_time_images[0])
+                    desired_zeros = np.zeros(real_time_images[0].shape,dtype=np.uint8)
                     im_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
 
                     # removing padding code for now, making assumption that all cameras
@@ -159,8 +188,10 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
 
     def visualize(image_queue):
         for frame in iter(image_queue.get, None):
-            cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+            # cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+            cv2.imshow("Preview", frame['im'])
             cv2.waitKey(1)
+
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
@@ -292,6 +323,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--frame_pause', type=int, default=0, help='Time to pause between frames of video')
     parser.add_argument('-p','--preview', default=True, action='store_true', help='Allow real-time visualization of video')
     parser.add_argument('--no-preview', dest='preview', action='store_false', help='Do not allow real-time visualization of video')
+    parser.add_argument('-s', '--scaling', type=float, default=0.5, help='Ratio to use for scaling the real-time visualization output (should be a float between 0 and 1)')
     args = parser.parse_args()
 
-    record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview)
+    record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview,resize=args.scaling)
