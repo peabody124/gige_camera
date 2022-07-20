@@ -1,3 +1,5 @@
+import copy
+
 import PySpin
 from simple_pyspin import Camera
 from PIL import Image
@@ -16,15 +18,15 @@ import pynput
 
 # Defining window size based on number
 # of cameras(key)
-window_sizes = {1: np.array([1, 1]),
-                2: np.array([1, 2]),
-                3: np.array([2, 2]),
-                4: np.array([2, 2]),
-                5: np.array([2, 3]),
-                6: np.array([2, 3])
+window_sizes = {1: np.array([1, 1, 1]),
+                2: np.array([1, 2, 1]),
+                3: np.array([2, 2, 1]),
+                4: np.array([2, 2, 1]),
+                5: np.array([2, 3, 1]),
+                6: np.array([2, 3, 1])
                 }
 
-def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True):
+def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True, resize = 0.5):
     # Initializing dict to hold each image queue (from each camera)
     image_queue_dict = {}
     if preview:
@@ -101,14 +103,14 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                     try:
                         im = im.GetNDArray()
 
-                        # if preview is enabled, save the size of the first image
-                        # and append the image from each camera to a list
+
                         if preview:
+                            # if preview is enabled, save the size of the first image
+                            # and append the image from each camera to a list
                             real_time_images.append(im)
-                            if size_flag == 0:
-                                size_flag = 1
-                                image_size = im.shape
+
                     except Exception as e:
+                        # print(e)
                         tqdm.write('Bad frame')
                         continue
 
@@ -116,38 +118,9 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
                     image_queue_dict[c.DeviceSerialNumber].put({'im': im, 'real_times': real_times, 'timestamps': timestamps})
 
                 if preview:
-
-                    if len(real_time_images) < np.prod(window_sizes[num_cams]):
-                        # Add extra square to fill in empty space if there are
-                        # not enough images to fit the current grid size
-                        real_time_images.extend([np.zeros_like(real_time_images[0]) for i in range(np.prod(window_sizes[num_cams]) - len(real_time_images))])
-
-                    desired_width = image_size[1]
-                    desired_height = image_size[0]
-
-                    # create output visualization shape
-                    desired_zeros = np.zeros_like(real_time_images[0])
-                    im_window = np.zeros_like(desired_zeros,shape=np.array(desired_zeros.shape) * window_sizes[num_cams])
-
-                    # removing padding code for now, making assumption that all cameras
-                    # will have same sized images
-
-                    im_counter = 0
-                    w_offset = 0
-                    h_offset = 0
-                    for r in range(window_sizes[num_cams][0]):
-                        for c in range(window_sizes[num_cams][1]):
-
-                            im_window[h_offset:h_offset+desired_height,w_offset:w_offset+desired_width] = real_time_images[im_counter]
-                            im_counter += 1
-                            w_offset += desired_width
-
-                        h_offset += desired_height
-                        w_offset = 0
-
-                    # Add combined image to queue if empty
+                    # Add image list to queue if empty
                     if visualization_queue.empty():
-                        visualization_queue.put({'im': im_window},block=False)
+                        visualization_queue.put({'im': real_time_images},block=False)
 
         except KeyboardInterrupt:
             tqdm.write('Crtl-C detected')
@@ -158,9 +131,55 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
             image_queue_dict[c.DeviceSerialNumber].put(None)
 
     def visualize(image_queue):
+
+        # Getting the image list from the queue
         for frame in iter(image_queue.get, None):
-            cv2.imshow("Preview", cv2.cvtColor(frame['im'], cv2.COLOR_BAYER_RG2RGB))
+            real_time_images = frame['im']
+
+            preview_images = []
+
+            for i in real_time_images:
+
+                # Go through the list of images, and convert them all to color
+                preview_im = cv2.cvtColor(i, cv2.COLOR_BAYER_RG2RGB)
+
+                # Check if the image should be resized and resize accordingly
+                if (0. < resize <= 1.0) and isinstance(resize, float):
+                    preview_im = cv2.resize(preview_im, dsize=None, fx=resize, fy=resize)
+
+                # Add the color(/resized) images to a new list
+                preview_images.append(preview_im)
+
+            if len(preview_images) < np.prod(window_sizes[num_cams]):
+                # Add extra square to fill in empty space if there are
+                # not enough images to fit the current grid size
+                preview_images.extend([np.zeros(preview_images[0].shape, dtype=np.uint8) for i in range(np.prod(window_sizes[num_cams]) - len(preview_images))])
+
+            h,w,d = preview_images[0].shape
+
+            # Initializing the full output grid
+            preview = np.zeros(np.array(preview_images[0].shape) * window_sizes[num_cams],dtype=np.uint8)
+
+            # removing padding code for now, making assumption that all cameras
+            # will have same sized images
+
+            # Filling in the full grid with individual images
+            im_counter = 0
+            w_offset = 0
+            h_offset = 0
+            for r in range(window_sizes[num_cams][0]):
+                for c in range(window_sizes[num_cams][1]):
+                    preview[h_offset:h_offset + h, w_offset:w_offset + w] = preview_images[im_counter]
+                    im_counter += 1
+                    w_offset += w
+
+                h_offset += h
+                w_offset = 0
+
+            # Display the preview image
+            cv2.imshow("Preview", preview)
             cv2.waitKey(1)
+
 
     def write_queue(vid_file, image_queue, json_queue, serial):
         now = datetime.now()
@@ -292,6 +311,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--frame_pause', type=int, default=0, help='Time to pause between frames of video')
     parser.add_argument('-p','--preview', default=True, action='store_true', help='Allow real-time visualization of video')
     parser.add_argument('--no-preview', dest='preview', action='store_false', help='Do not allow real-time visualization of video')
+    parser.add_argument('-s', '--scaling', type=float, default=0.5, help='Ratio to use for scaling the real-time visualization output (should be a float between 0 and 1)')
     args = parser.parse_args()
 
-    record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview)
+    record_dual(vid_file=args.vid_file, max_frames=args.max_frames, num_cams=args.num_cams,frame_pause=args.frame_pause,preview=args.preview,resize=args.scaling)
