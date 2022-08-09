@@ -132,10 +132,18 @@ def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = T
 
             image_queue_dict[c.DeviceSerialNumber].put(None)
 
+        if preview:
+            visualization_queue.put(None, block=True)
+
     def visualize(image_queue):
 
         # Getting the image list from the queue
         for frame in iter(image_queue.get, None):
+
+            if frame is None:
+                cv2.destroyAllWindows()
+                return
+
             real_time_images = frame['im']
 
             preview_images = []
