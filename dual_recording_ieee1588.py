@@ -23,7 +23,9 @@ window_sizes = {1: np.array([1, 1, 1]),
                 3: np.array([2, 2, 1]),
                 4: np.array([2, 2, 1]),
                 5: np.array([2, 3, 1]),
-                6: np.array([2, 3, 1])
+                6: np.array([2, 3, 1]),
+                7: np.array([2, 4, 1]),
+                8: np.array([2, 4, 1])
                 }
 
 def record_dual(vid_file, max_frames=100, num_cams=4, frame_pause=0, preview = True, resize = 0.5):
