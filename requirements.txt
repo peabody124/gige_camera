@@ -1,6 +1,10 @@
-pyspin
+futures<3.0.0
 simple_pyspin
-Pillow
+Pillow==7.0.0
 numpy
 opencv-python
+matplotlib
+tqdm
+windows-curses
+pynput
 
